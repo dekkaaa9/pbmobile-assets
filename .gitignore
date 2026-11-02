@@ -1,26 +1,22 @@
 # ============================================================
-#  PBMobile clone — .gitignore
+#  PBMobile clone - .gitignore
 #  Repo ini KODE + DOKUMEN. Aset besar lewat GitHub Release.
 # ============================================================
-
 # ---- dependensi ----
 node_modules/
 package-lock.json
-
 # ---- file sementara / output ----
 *.log
 *.txt
 *.tmp
 *.orig
 *.rej
-
 # ---- file sistem & editor ----
 .DS_Store
 Thumbs.db
 desktop.ini
 *.swp
 *~
-
 # ---- KREDENSIAL (jangan pernah ke-commit) ----
 .env
 .env.*
@@ -29,7 +25,6 @@ desktop.ini
 vps.js
 deploy/credentials*
 *.ppk
-
 # ---- ASET BESAR -> pakai GitHub Release, BUKAN git ----
 # Release "v1.0", 2 file (generate via tools/build_release.js):
 #   dist/site-runtime.tar.gz  723 MB  = site/ lengkap KECUALI export/ -> bisa langsung jalan
@@ -37,17 +32,12 @@ deploy/credentials*
 # Dipisah 2 file karena site/ utuh 2,05 GB > limit Release 2 GB per file.
 site/assets/
 site/rml/
-
 # ---- OLAHAN ANALISIS (846 MB glb/webp/maps) -> nggak di git ----
-# Kalau mau dibagi, bikin release terpisah: export_pb.tar.gz
 site/export/
-
 # ---- TARBALL (723 MB, duplikat isi site/) ----
 dist/
-
 # ---- CHEAT / userscript -> BUKAN kebutuhan clone PB ----
 cheat/
-
 # ---- SCRIPT REKON LAMA (sekali pakai, udah nggak dipakai) ----
 find_*.js
 extract_*.js
@@ -55,13 +45,66 @@ ws_*.js
 js/
 mirror_state.json
 site_index.html
-
+# ---- TOOLS SEKALI-PAKAI (mirror/probe/fetch/verify) ----
+# Repo cuma nyimpen 3 tool yang dibutuhin build/run:
+#   tools/local_server.js   jalanin clone offline (port 8787)
+#   tools/build_release.js bikin 2 tarball buat GitHub Release
+#   tools/repo_audit.js    audit isi repo
+tools/probe_*.js
+tools/fetch_*.js
+tools/check_*.js
+tools/verify_*.js
+tools/export_*.js
+tools/extract_*.js
+tools/mirror*.js
+tools/mirror.log
+tools/measure_git.js
+tools/speedtest_upload.js
+tools/beautify_bundle.js
+tools/make_debug.js
+tools/stats.js
+tools/inventory.js
+tools/tail_log.js
+tools/gh_size_check.js
+tools/runtime_size.js
+tools/final_check.js
+tools/bundle_audit.js
+tools/asset_url.js
+tools/assets_breakdown.js
+tools/clone_readiness.js
+tools/logic_probe.js
+tools/local_state.js
+tools/pbm.js
+tools/upload_site.js
+# ---- HASIL REKON / LAPORAN PENTEST: bukan kebutuhan build/run ----
+LAPORAN.md
+deploy/
+audit.txt
+build_release.txt
+mg.txt
+server.log
+maps_valid.json
+modes_maps.txt
+payload_check.txt
+lobby_msgs.txt
+msg_detail.txt
+game_flow.txt
+play_flow.txt
+client_flow.txt
+net_events.txt
+lobby_payload.txt
+rooms_payload.txt
+# ---- DATABASE RUNTIME (server bikin sendiri) ----
+data/
+*.sqlite
+*.sqlite3
 # ============================================================
 #  SISANYA SEMUA MASUK REPO:
-#    *.md                     dokumentasi
+#    *.md                     dokumentasi (README, PROTOKOL, GITHUB)
 #    site/index.html, cc.js, *.html, *.json
 #    site/static/**           kode client (27 MB)
 #    site/debug.html
-#    tools/**                 script (exclude node_modules)
-#    deploy/**                script deploy VPS
+#    site/jogo.html           halaman game (HUD)
+#    server/**                SERVER FASE 2 (lobby + battle + bot)
+#    tools/**                 script (local_server, build_release, repo_audit)
 # ============================================================
