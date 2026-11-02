@@ -209,13 +209,13 @@ function get(p) {
 
     // ---- 4. bikin room sendiri ----
     log('=== 4. create room ===');
-    a.sendJson({ t: 'create', room: { title: 'Room Tes', mode: 'elim', map: 'NPort', kills: 5, time: 3, bots: [2, 2], dif: 2 } });
+    a.sendJson({ t: 'create', room: { title: 'Room Tes', mode: 'elim', map: 'NPort', kills: 50, time: 10, bots: [2, 2], dif: 2 } });
     const rm = await a.waitFor(m => m.t === 'room', 5000);
     ok(!!rm && !!rm.room, 'dapat room setelah create');
     ok(rm.room.mode === 'elim', 'mode elim');
     ok(rm.room.map === 'NPort', 'map NPort');
-    ok(rm.room.kills === 5, 'kills 5');
-    ok(rm.room.time === 3, 'time 3 menit');
+    ok(rm.room.kills === 50, 'kills 50');
+    ok(rm.room.time === 10, 'time 10 menit');
     ok(rm.room.members.length === 1, 'satu anggota');
     ok(rm.room.members[0].nick === 'TestPemain', 'anggota = TestPemain');
 
@@ -445,6 +445,45 @@ function get(p) {
     const pg = await a.waitFor(m => m.t === 'pg', 8000);
     ok(!!pg, 'dapat pg dari server');
 
+    // ---- 11b. timer battle = MENIT -> DETIK ----
+    // REGRESI: dulu `timeLeft = room.time` (3) padahal client pakai
+    // `timeLimit = 60 * time`. Battle berakhir 3 detik setelah mulai.
+    log('=== 11b. timer battle (menit -> detik) ===');
+    ok(Math.abs(battle.timeLeft - rm.room.time * 60) < 30,
+      'timeLeft ≈ ' + rm.room.time + ' menit = ' + battle.timeLeft.toFixed(1) + ' detik');
+    ok(battle.timeLeft > 60, 'battle nggak berakhir < 1 menit (' + battle.timeLeft.toFixed(1) + 's)');
+    ok(g.game.timeLimit === rm.room.time * 60,
+      'game.timeLimit dikirim dalam detik (' + g.game.timeLimit + ')');
+    ok(!battle.over, 'battle masih jalan setelah ' + Math.round(battle.elapsed) + 's');
+
+    // royale: `kills:1` = last-man-standing, BUKAN limit kill.
+    // REGRESI: dulu battle royale berakhir di tembakan pertama.
+    log('=== 11c. royale nggak berakhir di kill pertama ===');    {
+      const rq = await a.waitFor(m => m.t === 'room', 5000).catch(() => null);
+      a.sendJson({ t: 'create', room: { title: 'Royale', mode: 'royale', map: 'Wilderness', kills: 1, time: 10, bots: [0, 5], dif: 2 } });
+      const rroy = await a.waitFor(m => m.t === 'room', 5000);
+      ok(rroy.room.mode === 'royale', 'room royale dibuat');
+      a.sendJson({ t: 'start' });
+      await a.waitFor(m => m.t === 'start', 5000);
+      a.sendJson({ t: 'ingame' });
+      const groy = await a.waitFor(m => m.t === 'game', 8000);
+      ok(groy.game.mode === 'royale', 'game royale payload');
+      const royBattle = [...lobby.battles.values()].find(b => b.room.mode === 'royale');
+      ok(!!royBattle, 'battle royale terdaftar');
+      if (royBattle) {
+        ok(royBattle.timeLeft === 10 * 60, 'royale timeLeft = 10 menit = 600 detik');
+        ok(!royBattle.over, 'royale nggak over tepat setelah mulai');
+        const victim = groy.game.ents.find(e => e.bot);
+        if (victim) {
+          a.sendJson({ t: 'hit', target: victim.id, from: groy.you, dmg: 200, head: true, helm: 0, w: 1001 });
+          await new Promise(r => setTimeout(r, 600));
+          ok(!royBattle.over, 'royale TETAP jalan setelah 1 kill (bukan limit kill)');
+        }
+      }
+      a.sendJson({ t: 'leavegame' });
+      await new Promise(r => setTimeout(r, 300));
+    }
+
     // ---- 12. spawnme setelah mati ----
     log('=== 12. respawn ===');
     if (enemy) {
@@ -453,12 +492,77 @@ function get(p) {
       ok(true, 'respawn diuji lewat alur bot (skip)');
     }
 
+    // ---- 12b. bot mati HARUS respawn ----
+    // REGRESI: bots.js `shoot()` dulu set `target.dead = true` TANPA
+    // `respawnAt`. Loop respawn di battle.tick() butuh `e.dead && e.respawnAt`,
+    // jadi bot mati permanen -> battle kosong, nggak ada yang nembak pemain.
+    log('=== 12b. bot mati harus respawn ===');
+    {
+      const botsInBattle = [...battle.ents.values()].filter(e => e.bot);
+      ok(botsInBattle.length === 4, 'ada ' + botsInBattle.length + ' bot di battle');
+      // bunuh satu bot lewat hit pemain (jalur battle.kill -> respawnAt ke-set)
+      const victim = botsInBattle.find(e => !e.dead && e.team !== me.team) || botsInBattle[0];
+      if (victim) {
+        // Tes "jarak >250 ditolak" di section 9 mindarin satu bot 400 unit dan
+        // nggak dikembalikan. Kalau bot itu kepilih jadi victim, SEMUA hit
+        // ditolak distance cap. Jadi paksa victim nempel di pemain tiap ronde.
+        let kv = null;
+        for (let i = 0; i < 20 && !victim.dead; i++) {
+          victim.p = [me.p[0] + 5, me.p[1], me.p[2] + 5];
+          if (!me.dead) {
+            a.sendJson({ t: 'hit', target: victim.id, from: g.you, dmg: 200, head: true, helm: 0, w: 1001 });
+          }
+          kv = await a.waitFor(m => m.t === 'kill' && m.victim === victim.id, 800).catch(() => null);
+          if (!victim.dead) await new Promise(r => setTimeout(r, 700));
+        }
+        ok(victim.dead === true, 'bot ' + victim.id.slice(0, 8) + ' mati (lewat hit pemain)');
+        if (victim.dead) {
+          ok(victim.respawnAt > Date.now(), 'victim.respawnAt di-set (' + victim.respawnAt + ') — bukan 0');
+          // tunggu respawn (3 detik + tick)
+          let back = false;
+          for (let i = 0; i < 80 && !back; i++) {
+            await new Promise(r => setTimeout(r, 150));
+            back = !victim.dead && victim.hp > 0;
+          }
+          ok(back, 'bot RESPAWN setelah mati (hp=' + victim.hp + ') — bug respawn permanen udah ilang');
+        }
+      }
+      // bot vs bot: paksa lewat API internal buat pastikan jalur kill() dipakai
+      const b2 = [...battle.ents.values()].filter(e => e.bot && !e.dead);
+      if (b2.length >= 2) {
+        const [x, y] = b2;
+        x.hp = 1;
+        battle.bots.shoot(battle, y, x, 50, false);
+        ok(x.dead === true, 'bot vs bot: target mati');
+        ok(x.respawnAt > Date.now(), 'bot vs bot: respawnAt ke-set lewat battle.kill()');
+        let back2 = false;
+        for (let i = 0; i < 80 && !back2; i++) {
+          await new Promise(r => setTimeout(r, 150));
+          back2 = !x.dead && x.hp > 0;
+        }
+        ok(back2, 'bot vs bot: target RESPAWN');
+      }
+    }
+
     // ---- 13. leavegame ----
     log('=== 13. leavegame ===');
     a.sendJson({ t: 'leavegame' });
     await new Promise(r => setTimeout(r, 400));
     const gone = battle.bySid.get(sess.sid);
     ok(!gone, 'ent hilang setelah leavegame');
+
+    // ---- 14. cleanup battle nggak ninggalin entri stale ----
+    // REGRESI: cleanup() cuma delete `battles.delete(this.key)`, entri
+    // "<battleKey>.<sid>" per pemain nyangkut -> memory leak.
+    log('=== 14. cleanup battle ===');
+    {
+      const stale = [...lobby.battles.entries()].filter(([k, b]) => b === battle);
+      ok(stale.length > 0, 'masih ada ' + stale.length + ' entri battle di map (sebelum cleanup)');
+      battle.cleanup();
+      await new Promise(r => setTimeout(r, 100));
+      const after = [...lobby.battles.entries()].filter(([k, b]) => b === battle);
+      ok(after.length === 0, 'SEMUA entri battle dihapus (' + after.length + ' sisa) — nggak ada leak');
+    }
 
   } catch (e) {
     fail++;

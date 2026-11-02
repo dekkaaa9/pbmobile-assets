@@ -148,13 +148,14 @@ class Bots {
   // bot nembak player -> server kirim hp lalu kill
   shoot(battle, bot, target, dmg, head) {
     if (target.bot) {
-      // bot vs bot: kurangi hp langsung
+      // bot vs bot: kurangi hp langsung.
+      // PENTING: delegasikan ke battle.kill() — jangan set `dead` manual.
+      // `kill()` yang set `respawnAt` (+3 detik), `deaths`, skor tim, dan
+      // kirim event `kill`. Kalau `dead=true` tanpa `respawnAt`, loop respawn
+      // di battle.tick() (`e.dead && e.respawnAt && ...`) nggak pernah jalan
+      // -> bot mati permanen dan battle jadi kosong.
       target.hp -= dmg;
-      if (target.hp <= 0) {
-        target.dead = true; target.hp = 0;
-        bot.kills += 1;
-        if (battle.mode.teams) battle.score[bot.team] = (battle.score[bot.team] || 0) + 1;
-      }
+      if (target.hp <= 0) battle.kill(target, bot, head, { w: bot.botW });
       return;
     }
     const s = target.owned ? battle.lobby.conns.get(target.owned) : null;

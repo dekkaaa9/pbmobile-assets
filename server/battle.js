@@ -117,7 +117,9 @@ class Battle {
     this.bySid = new Map();         // sid -> Ent
     this.sockets = new Map();       // sid -> WsConn (battle WS)
     this.score = [0, 0];
-    this.timeLeft = room.time;
+    // `room.time` = MENIT (kontrak client: timeLimit = 60 * time).
+    // Server ngitung mundur dalam DETIK, jadi konversi di sini.
+    this.timeLeft = (room.time || 5) * 60;
     this.round = 0;
     this.rounds = mode.rounds || 1;
     this.phase = 'warm';            // warm | live | over
@@ -313,12 +315,12 @@ class Battle {
   loadp(s, n, of) { this.lobby.send(s, { t: 'loadp', n, of }); }
 
   // ---------- mulai ----------
-  startCountdown() {
-    this.phase = 'warm';
-    this.freeze = 5;
-    this.sendAll({ t: 'go', left: this.freeze });
-    setTimeout(() => { if (!this.over) { this.phase = 'live'; this.sendAll({ t: 'go', left: 0 }); } }, this.freeze * 1000);
-  }
+  // CATATAN: method `startCountdown()` sengaja TIDAK dipakai / dihapus.
+  // Handler client `go` melakukan `e.left && (w.timeLimit = e.left)` —
+  // kirim `left: 5` akan menimpa timeLimit jadi 5 DETIK dan merusak
+  // hitung-mundur. Fase `warm` di constructor sudah cukup: battle.tick()
+  // kirim `{t:'go', left:0}` (falsy -> timeLimit nggak disentuh) pas fase
+  // habis. Jadi `go` HARUS selalu bawa `left: 0`.
 
   // ---------- tick ----------
   tick(dt) {
@@ -364,11 +366,20 @@ class Battle {
     const humans = [...this.ents.values()].filter(e => !e.bot);
 
     if (this.room.mode === 'royale') {
+      // royale = last-man-standing, BUKAN batas kill. `kills:1` di config
+      // berarti "menang kalau sisa 1 pemain", jadi jangan dipakai sebagai
+      // limit kill generik (nanti battle berakhir di tembakan pertama).
       const aliveHumans = humans.filter(e => !e.dead);
-      if (aliveHumans.length <= 1 && this.elapsed > 3) {
+      const done = aliveHumans.length === 0 || (humans.length > 1 && aliveHumans.length <= 1);
+      if (done && this.elapsed > 3) {
         const w = aliveHumans[0];
         return this.end(w ? w.team : null, 'royale');
       }
+      if (this.timeLeft <= 0) {
+        const w = aliveHumans[0];
+        return this.end(w ? w.team : null, 'time');
+      }
+      return;
     }
 
     if (mode.teams) {
@@ -430,7 +441,10 @@ class Battle {
   cleanup() {
     for (const [sid, c] of this.sockets) { try { c.close(1000, 'end'); } catch (_) {} }
     this.sockets.clear();
-    this.lobby.battles.delete(this.key);
+    // HAPUS SEMUA entri yang nunjuk ke battle ini. Sebelumnya cuma
+    // `battles.delete(this.key)` — entri "<battleKey>.<sid>" per pemain
+    // nyangkut selamanya -> memory leak + tick/snap iterasi battle mati.
+    for (const [k, b] of this.lobby.battles) { if (b === this) this.lobby.battles.delete(k); }
     if (this.room.battle === this) this.room.battle = null;
     this.room.state = 'Esperando';
     for (const m of this.room.members) {

@@ -36,7 +36,7 @@ pbmobile/
 │   ├── config.js             mode, peta, rumus damage/recoil, level
 │   ├── static.js             penyaji file statis + Range
 │   ├── test_codec.js         tes codec (88 assertion)
-│   └── test_integration.js   tes end-to-end (84 assertion)
+│   └── test_integration.js   tes end-to-end (103 assertion)
 ├── tools/                    cuma 3 script yang dibutuhin build/run
 │   ├── local_server.js       jalanin clone offline (port 8787)
 │   ├── build_release.js      bikin 2 tarball buat GitHub Release

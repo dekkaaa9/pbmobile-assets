@@ -568,7 +568,11 @@ class Lobby {
 
   // ---------- tick ----------
   tick() {
-    for (const b of this.battles.values()) b.tick(TICK_MS / 1000);
+    // try/catch per battle: satu battle error TIDAK boleh mematikan server.
+    for (const b of this.battles.values()) {
+      try { b.tick(TICK_MS / 1000); }
+      catch (e) { console.error('[battle] tick error ' + b.key.slice(0, 6) + ': ' + e.message); }
+    }
     for (const s of this.conns.values()) {
       if (!s.alive) continue;
       if (now() - s.lastSeen > 120000) { try { s.conn.close(4000, 'timeout'); } catch (_) {} }
@@ -576,7 +580,10 @@ class Lobby {
   }
 
   snap() {
-    for (const b of this.battles.values()) b.snap();
+    for (const b of this.battles.values()) {
+      try { b.snap(); }
+      catch (e) { console.error('[battle] snap error ' + b.key.slice(0, 6) + ': ' + e.message); }
+    }
   }
 
   heartbeat() {
