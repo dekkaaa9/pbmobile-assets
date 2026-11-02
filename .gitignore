@@ -45,6 +45,17 @@ site/export/
 # ---- TARBALL (723 MB, duplikat isi site/) ----
 dist/
 
+# ---- CHEAT / userscript -> BUKAN kebutuhan clone PB ----
+cheat/
+
+# ---- SCRIPT REKON LAMA (sekali pakai, udah nggak dipakai) ----
+find_*.js
+extract_*.js
+ws_*.js
+js/
+mirror_state.json
+site_index.html
+
 # ============================================================
 #  SISANYA SEMUA MASUK REPO:
 #    *.md                     dokumentasi
@@ -52,6 +63,5 @@ dist/
 #    site/static/**           kode client (27 MB)
 #    site/debug.html
 #    tools/**                 script (exclude node_modules)
-#    cheat/**                 userscript + panduan
 #    deploy/**                script deploy VPS
 # ============================================================
