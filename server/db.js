@@ -63,6 +63,18 @@ class DB {
   // key: login lowercase (ID yang diketik pemain di MASUK/DAFTAR)
   getAccount(nick) { return this.data.accounts[String(nick).toLowerCase()] || null; }
 
+  /** Cari akun by nick tampilan (bisa beda dari login). */
+  findByNick(nick) {
+    const n = String(nick).trim().toLowerCase();
+    for (const a of Object.values(this.data.accounts)) {
+      if (String(a.nick || '').trim().toLowerCase() === n) return a;
+    }
+    return null;
+  }
+
+  /** Cari by login dulu, fallback ke nick tampilan. */
+  resolve(nick) { return this.getAccount(nick) || this.findByNick(nick); }
+
   // ---- password (scrypt + salt acak, compare constant-time) ----
   hashPw(pw) {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -132,6 +144,21 @@ class DB {
       playtime: 0,
       owned: Object.fromEntries(START_KIT.map(x => [x, true])),  // itemId -> true
       equip: { 1: 'k2', red: 'redbulls', blue: 'acidpol' },      // slot -> itemId
+      // ranking / progresi
+      rp: 0,               // pontos de ranking (RANKEADA)
+      peakRp: 0,           // melhor da temporada
+      rkGot: [],           // patentes cuja recompensa já foi pega
+      losses: 0,
+      // sosial / cosmetic
+      notes: [],           // inbox
+      blocks: [],          // bloqueados
+      titles: [],          // títulos possuídos
+      titleEq: null,       // título equipado
+      nickStyle: null,     // {c,f}
+      units: {},           // itens de clã (contador)
+      // passe de missões
+      mpassStart: 0,
+      mpassEarned: 0,
       settings: null,
       missions: {},
       daily: {},

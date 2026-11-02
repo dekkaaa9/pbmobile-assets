@@ -109,8 +109,51 @@ function battleUrl(s, path) {
   return (s.secure ? 'wss://' : 'ws://') + host + path;
 }
 
-// --- rank ladder (buat event `gg`) ---
-const RANK_LADDER = ['Bronze', 'Prata', 'Ouro', 'Platina', 'Diamante', 'Mestre', 'Lenda'];
+// --- rank ladder ---
+// Dari bundle.js `rkEmblem`: 6 tier (indeks 0-5, tabel warna `xe`) dan
+// 4 divisi -> `["", "I", "II", "III"][div]`. Dari client.js `rkNext`:
+// 100 poin = 1 divisi, tier teratas = "Mestre".
+//   div 3 = III (divisi masuk) | 2 = II | 1 = I | 0 = tanpa numeral (max)
+// Warna tier (bundle.js `xe` + client.js `o[]` di showRanked):
+const RANK_TIERS = [
+  { name: 'Bronze',   pts: 0,    color: '#e6a46a' },
+  { name: 'Prata',    pts: 300,  color: '#e6ecf2' },
+  { name: 'Ouro',     pts: 600,  color: '#ffd76a' },
+  { name: 'Platina',  pts: 900,  color: '#8ff0e2' },
+  { name: 'Diamante', pts: 1200, color: '#a8c8ff' },
+  { name: 'Mestre',   pts: 1500, color: '#e2a6ff' },
+];
+const RANK_DIV_PTS = 100;          // poin per divisi (dari rkNext)
+const RANK_LADDER = RANK_TIERS.map(t => t.name);
+
+/** tier+divisi dari poin ranking. */
+function rankFromRp(rp) {
+  rp = Math.max(0, rp | 0);
+  let ti = 0;
+  for (let i = 0; i < RANK_TIERS.length; i++) if (rp >= RANK_TIERS[i].pts) ti = i;
+  const t = RANK_TIERS[ti];
+  const nextTi = RANK_TIERS[ti + 1] || null;
+  const over = rp - t.pts;
+  // 0-99 -> III(3), 100-199 -> II(2), 200+ -> I(1); maxed di tier -> 0
+  let div = 3 - Math.min(2, Math.floor(over / RANK_DIV_PTS));
+  if (!nextTi && over >= 200) div = 0;
+  return {
+    tier: ti, div, name: t.name, color: t.color,
+    base: t.pts, next: nextTi ? nextTi.pts : 0, rp,
+  };
+}
+
+/** Hadiah per tier buat `rk_me` ([[tierName, kind, itemId, days], ...]). */
+function rankRewards() {
+  return [
+    ['Bronze', 'arma', 'k2', 0],
+    ['Prata', 'arma', 'k5', 0],
+    ['Ouro', 'arma', 'm7', 0],
+    ['Platina', 'beret', '214004', 30],
+    ['Diamante', 'arma', 'k400', 0],
+    ['Mestre', 'beret', '301043', 0],
+  ];
+}
 
 // ---- muat weapons.json (6.109 senjata) ----
 function loadWeapons() {
@@ -137,7 +180,7 @@ function loadCharas() {
 }
 
 module.exports = {
-  DMG_RATE, DEFAULT_SETTINGS, MODES, MAPS, RANK_LADDER, mapsFor,
+  DMG_RATE, DEFAULT_SETTINGS, MODES, MAPS, RANK_LADDER, RANK_TIERS, mapsFor,
   calcDamage, calcRecoil, levelFromXp, isSecure, battleUrl,
-  loadWeapons, loadWeaponAnims, loadCharas,
+  rankFromRp, rankRewards, loadWeapons, loadWeaponAnims, loadCharas,
 };

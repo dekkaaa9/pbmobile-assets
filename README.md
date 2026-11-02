@@ -16,7 +16,7 @@ pbmobile/
 │   ├── cc.js                 loader awal
 │   ├── debug.html            halaman tes (showroom 3D, buat verifikasi aset)
 │   ├── pb-web.html  pb-ios.html  point-blank-mobile.html
-│   ├── home.json  goods.json  build.json     stub API
+│   ├── home.json  goods.json  build.json     data asli (goods.json = katalog Shop.dat)
 │   └── static/               27 MB - KODE CLIENT
 │       ├── game/bundle.js            1 MB   logika game (obfuscated)
 │       ├── game/bundle.readable.js   1,5 MB versi beautify (30.504 baris)
@@ -32,11 +32,14 @@ pbmobile/
 │   ├── bots.js               AI musuh (6 profil senjata, 3 tingkat kesulitan)
 │   ├── codec.js              port persis codec binary `st` (2 arah)
 │   ├── wssrv.js              WebSocket server RFC 6455 buatan sendiri
-│   ├── db.js                 penyimpanan akun (JSON, atomic write)
-│   ├── config.js             mode, peta, rumus damage/recoil, level
+│   ├── db.js                 penyimpanan akun (JSON, atomic write, scrypt)
+│   ├── config.js             mode, peta, rumus damage/recoil, level, ladder rank
+│   ├── shop.js               katalog + ekonomi dari goods.json asli (Shop.dat)
 │   ├── static.js             penyaji file statis + Range
 │   ├── test_codec.js         tes codec (88 assertion)
-│   └── test_integration.js   tes end-to-end (103 assertion)
+│   ├── test_integration.js   tes end-to-end (116 assertion)
+│   ├── test_akun.js          tes akun DAFTAR/MASUK (42 assertion, live)
+│   └── test_shop.js          tes shop/ekonomi/ranking (96 assertion, live)
 ├── tools/                    cuma 3 script yang dibutuhin build/run
 │   ├── local_server.js       jalanin clone offline (port 8787)
 │   ├── build_release.js      bikin 2 tarball buat GitHub Release
@@ -111,6 +114,25 @@ Akun baru langsung dapat starter kit: `k2`, `k5`, `m7`, `k400`, chara
 | Codec | `server/codec.js` | port persis `k()`/`E()` dari `net.js` - dua arah, clamp i8 |
 | WS | `server/wssrv.js` | RFC 6455 buatan sendiri: handshake SHA1, masking, fragmentasi, control frame |
 | DB | `server/db.js` | JSON store, atomic tmp+rename, flush debounce, **password scrypt + salt, sesi `tok`** |
+| Shop | `server/shop.js` | baca `site/goods.json` asli (`Shop.dat`): 710 item / 1914 offer, harga CASH & GOLD, set, bundel premium, sewa + expiry |
+
+### Shop, ekonomi & ranking
+
+Shop-nya **bukan karangan** — dibaca langsung dari `site/goods.json` PB asli
+(`source: "Shop.dat"`): 710 item, 1914 offer, 10 set, nama & slot asli.
+
+- **CASH (GP)** = currency gratisan, offer-nya **sewa** 1/3/30 hari. Akun baru
+  dapat 50000 GP.
+- **GOLD (PB Coin)** = currency premium, offer-nya **permanen**. Akun baru 0 —
+  didapat dari menang partida (`5 + floor(kills/5)` per vitória).
+- `owned[item]` nyimpen **expiry** (`0` = permanen), sewa kedaluwarsa dibuang
+  otomatis tiap login.
+- Ranking 6 tier (Bronze → Mestre), 100 poin per divisi, dari `rkEmblem` +
+  `rkNext` di bundle. RP naik kalau menang, turun kalau kalah, dan **nggak
+  berubah** di treino / partida lawan bot.
+- Progresi (`result`): EXP, CASH, GOLD, RP, level, kills/deaths/headshots/wins.
+
+Kontrak lengkap + rumusnya: **`PROTOKOL.md` §2c**.
 
 ### Tes
 
@@ -118,6 +140,7 @@ Akun baru langsung dapat starter kit: `k2`, `k5`, `m7`, `k400`, chara
 node server/test_codec.js        # 88 assertion - codec biner dua arah
 node server/test_integration.js  # 116 assertion - boot server, mainin flow lengkap
 node server/test_akun.js         # 42 assertion - DAFTAR/MASUK/resume ke server LIVE
+node server/test_shop.js         # 96 assertion - shop/ekonomi/ranking/nick/sosial/result
 ```
 
 `test_akun.js` nembak server produksi (default: tunnel trycloudflare), jadi
@@ -165,6 +188,8 @@ sama daftar nama global `Tc`.
 | Anti-cheat client (Rc/Lc/Cc/Ic) | ✅ terpetakan |
 | Client jalan 100% offline | ✅ selesai |
 | **Server Fase 2 (lobby + battle + bot)** | ✅ selesai - `node server/index.js` |
+| **Akun: DAFTAR / MASUK (scrypt + sesi)** | ✅ selesai - `PROTOKOL.md` §2b |
+| **Shop + ekonomi + ranking (data asli)** | ✅ selesai - `PROTOKOL.md` §2c |
 | Deploy publik VPS + tunnel | 📖 panduan di `VPS.md` |
 
 ---

@@ -116,6 +116,102 @@ client simpan `tok` di sessionStorage dan kirim `resume` waktu reload/reconnect.
 
 ---
 
+### 2c. Shop, ekonomi & ranking
+
+Katalog dibaca dari **`site/goods.json`** — file asli PB (`source: "Shop.dat"`),
+bukan karangan. Bentuknya:
+
+```js
+goods[itemId] = [[offerId, days, gold, cash, mark], ...]   // 710 item, 1914 offer
+sets[setId]   = {items:[[itemId,days],...], gold, cash, mark, name}   // 10 set
+slot[itemId]  = "1"          // 1 = senjata utama, 2..5 = kit, "item" = consumable
+name[itemId]  = "BC AK47"    // nama tampilan
+added[itemId] = 1793027459   // timestamp masuk (buat badge NOVO)
+```
+
+Dua currency, dan **nggak pernah ditawarin barengan** di offer yang sama:
+
+| Currency | Field | Sifat offer | Jumlah |
+|---|---|---|---|
+| **CASH** (GP) | `cash` | sewa — `days` = 1 / 3 / 30 | 1591 offer |
+| **GOLD** (PB Coin) | `gold` | permanen — `days` = 0 | 323 offer |
+
+Akun baru mulai `cash: 50000`, `gold: 0` — jadi bisa langsung sewa, tapi permanen
+harus ditabung / dimenangkan.
+
+**RPC shop** (`client.js` → `lobby.js` `onRpc`):
+
+| Pesan | Isi | Balasan |
+|---|---|---|
+| `buy` | `{goods:<offerId>, cash:<bool>, to?:<nick>}` | `{acct}` atau `{err}` |
+| `buyset` | `{set:<setId>, cash:<bool>}` | `{acct}` atau `{err}` |
+| `pshop` | — | `{bundles:[{items,was,price,tag,crate}]}` |
+| `pbuy` | `{b:<index>}` | `{acct}` atau `{err}` |
+| `activate` | `{goods:<offerId>, cash:<bool>}` | `{acct}` atau `{err}` |
+
+`cash` di request = `!a.gold` di client — jadi kalau offer nggak punya harga
+gold, client minta bayar pakai CASH. Server nolak kalau currency nggak cocok
+(`"Este item não é vendido em GOLD."`) supaya client nggak bisa nebak harga.
+
+`owned` di akun nyimpen **expiry**, bukan cuma `true`:
+`owned[itemId] = 0` (permanen) atau `owned[itemId] = <timestamp>` (sewa).
+Sewa yang diulang diperpanjang dari expiry paling jauh, bukan mundur.
+`shop.sweepExpired(acct)` dipanggil tiap login buang yang kedaluwarsa.
+
+`pshop` (loja premium) disusun ulang dari offer gold permanen asli, dikelompokkan
+per slot, diskon 15% (`was > price`). Client butuh minimal satu item non-`item`
+di tiap bundel buat `psHero()`.
+
+**Ranking.** Ladder 6 tier, dari `bundle.js` `rkEmblem` (tabel warna `xe`,
+6 entri) + `client.js` `rkNext` (100 poin per divisi, tier teratas `"Mestre"`):
+
+| Tier | Poin | Warna |
+|---|---|---|
+| Bronze | 0 | `#e6a46a` |
+| Prata | 300 | `#e6ecf2` |
+| Ouro | 600 | `#ffd76a` |
+| Platina | 900 | `#8ff0e2` |
+| Diamante | 1200 | `#a8c8ff` |
+| Mestre | 1500 | `#e2a6ff` |
+
+Divisi: 0–99 → `III`, 100–199 → `II`, 200+ → `I`; tier teratas yang maxed →
+tanpa numeral. `rkEmblem` render `["", "I", "II", "III"][div]`.
+
+| Pesan | Balasan |
+|---|---|
+| `rk_me` | `{me:{info,peakInfo,tiers,rewards,got,rp,matches,wins,losses,peak,season}, top:[], inq, count, pt, myId, plat}` |
+| `rk_claim` | `{acct, got}` — klaim hadiah patente |
+| `cf_top` | `{list:[{name,mark,pontos,v,d,a}]}` |
+
+**Hasil partida** (`client.js` kirim pas balik ke lobby):
+
+```js
+{ t:"result", mode, win:-1|0|1, kills, deaths, heads, assists, missions, bots, secs }
+// -> { acct, result:{exp, point, points, gold, cash, rank, up, treino} }
+```
+
+`win`: `-1` empate, `0` derrota, `1` vitória. Rumus di `lobby.js` `recordResult()`:
+
+- **EXP** `50 + kills*12 + heads*8 + (vitória?120:0) + secs/60`, treino ×0.5
+- **CASH** `100 + kills*15 + (vitória?250:0)`, treino ×0.5
+- **GOLD** cuma dari vitória dan bukan treino: `5 + floor(kills/5)`
+- **RP** `(vitória?24 : derrota?-16 : 4) + clamp(kills-deaths, -8, 12)`
+- **RP nggak berubah** kalau `bots` atau `treino` — PB asli rankeada "sem bots"
+
+**Nick & sosial:** `nickcheck` → `{nick}`/`{err}`; `setnick` → `{acct, old}`;
+`notes`/`note_send`/`note_read`/`note_del`; `block`/`unblock`/`blocks`;
+`who` → `{profile:{nick,level,xp,rank,kills,deaths,wins,matches,headshots,clan,rp,online}}`;
+`title_get`/`title_eq`; `nickstyle`; `mpass`/`mpass_buy` (passe 30 hari, 2500 CASH).
+
+Pencarian pemain pakai `db.resolve()` — coba by login dulu, fallback ke nick
+tampilan, karena `who`/`note_send`/gift ngirim nick yang bisa beda dari ID login.
+
+**Yang sengaja nggak diimplementasi** (butuh backend / uang asli, nggak bisa
+offline): `cpay`/`pix` (processor pembayaran), `den`/`denlist`/`denvote`
+(DB moderasi), `perfil_*` (antrian penilaian manusia), `vip_*` (terikat top-up).
+
+---
+
 ## 3. Pesan lobby (server → client)
 
 Dari dispatcher `t.onmessage` di `net.js`:

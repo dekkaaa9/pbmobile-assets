@@ -17,6 +17,7 @@ const cfg = require('./config');
 const { encodeSt, encodeStBatch } = require('./codec');
 const { Battle } = require('./battle');
 const { Bots } = require('./bots');
+const { loadShop } = require('./shop');
 
 const TICK_MS = 50;          // 20 Hz — sama kayak client
 const SNAP_MS = 66;          // ~15 Hz broadcast snapshot
@@ -35,6 +36,8 @@ class Lobby {
   constructor(opts) {
     this.db = new DB(opts.dbFile || require('path').join(__dirname, '..', 'data', 'pb.json'));
     this.weapons = cfg.loadWeapons();
+    // katalog shop asli dari site/goods.json (source: Shop.dat)
+    this.shop = loadShop(require('path').join(__dirname, '..', 'site'));
     this.conns = new Map();       // sid -> session
     this.rooms = new Map();       // roomId -> Room
     this.battles = new Map();     // battleKey -> Battle
@@ -147,7 +150,11 @@ class Lobby {
     }
 
     // --- game (lobby socket bawa event game juga) ---
-    if (GAME_MSG.has(t)) return this.onGameMsg(s, m);
+    // Pesan in-game cuma dianggap pesan battle kalau beneran lagi di battle.
+    // Kalau nggak, jatuh ke bawah — `equip` di lobby (ganti loadout) pakai
+    // nama tipe yang sama kayak `equip` in-game (ganti senjata), jadi harus
+    // bisa nyampe onRpc.
+    if (GAME_MSG.has(t) && s.battleKey) return this.onGameMsg(s, m);
 
     // --- RPC (.call dengan req) ---
     if (typeof m.req === 'number') return this.onRpc(s, m);
@@ -211,6 +218,9 @@ class Lobby {
 
     s.nick = acct.nick || acct.login || 'Player';
     s.account = acct;
+    // buang item yang sewanya kedaluwarsa
+    const expired = this.shop.sweepExpired(acct);
+    if (expired) this.log('sewa kedaluwarsa: ' + expired + ' item dihapus (' + s.nick + ')');
     this.db.touch(acct);
     s.ready = true;
 
@@ -248,9 +258,12 @@ class Lobby {
       id: a.id, login: a.login || '', name: a.nick || a.login || '',
       nick: a.nick, cash: a.cash, gold: a.gold, coin: a.gold,
       level: a.level, xp: a.xp, rank: a.rank,
-      kills: a.kills, deaths: a.deaths, wins: a.wins, matches: a.matches,
-      headshots: a.headshots, playtime: a.playtime,
+      kills: a.kills, deaths: a.deaths, wins: a.wins, losses: a.losses || 0,
+      matches: a.matches, headshots: a.headshots, playtime: a.playtime,
+      rp: a.rp || 0, peakRp: a.peakRp || 0,
       owned: a.owned, equip: a.equip, staff: a.staff,
+      units: a.units || {}, titles: a.titles || [], titleEq: a.titleEq || null,
+      nickStyle: a.nickStyle || null, notes: a.notes || [], blocks: a.blocks || [],
       clan: a.clan || null, vip: a.vip || null, friends: a.friends || [],
       news: a.news || { s: 0 },
     };
@@ -532,12 +545,86 @@ class Lobby {
   }
 
   // ---------- RPC ----------
+  /**
+   * Hasil match (client.js kirim stlh partida):
+   *   {t:"result", mode, win:-1|0|1, kills, deaths, heads, assists,
+   *    missions, bots, secs}
+   * Balikin {acct, result:{exp, point, points, gold, cash, rank, up}}.
+   * `win`: -1 = empate, 0 = derrota, 1 = vitória.
+   */
+  recordResult(s, m) {
+    const a = s.account;
+    const win = Number(m.win);
+    const kills = Math.max(0, Math.min(200, Number(m.kills) || 0));
+    const deaths = Math.max(0, Math.min(200, Number(m.deaths) || 0));
+    const heads = Math.max(0, Math.min(200, Number(m.heads) || 0));
+    const secs = Math.max(0, Math.min(7200, Number(m.secs) || 0));
+    const bots = !!m.bots;
+    const treino = !!m.treino;
+
+    // ---- akumulasi statistik ----
+    a.kills += kills;
+    a.deaths += deaths;
+    a.headshots += heads;
+    a.matches += 1;
+    a.playtime += secs;
+    if (win > 0) a.wins += 1; else if (win === 0) a.losses = (a.losses || 0) + 1;
+
+    // ---- EXP: dasar partida + kill + headshot + bonus vitória ----
+    let exp = 50 + kills * 12 + heads * 8 + (win > 0 ? 120 : 0) + Math.floor(secs / 60);
+    if (treino) exp = Math.floor(exp * 0.5);      // treino dapat setengah
+    a.xp += exp;
+
+    // ---- CASH (GP): hadiah partida ----
+    let cash = 100 + kills * 15 + (win > 0 ? 250 : 0);
+    if (treino) cash = Math.floor(cash * 0.5);
+    a.cash += cash;
+
+    // ---- GOLD (PB Coin): cuma dari vitória, dan nggak di treino ----
+    let gold = 0;
+    if (win > 0 && !treino) gold = 5 + Math.floor(kills / 5);
+
+    // ---- level up ----
+    const lvlBefore = a.level;
+    a.level = cfg.levelFromXp(a.xp);
+    const up = a.level > lvlBefore ? a.level : 0;
+
+    // ---- pontos de ranking (RANKEADA) ----
+    // Sederhana & konsisten: vitória naik, derrota turun, skalanya kill.
+    // Treino & partida com bot nggak ngubah RP (kayak PB asli: "sem bots").
+    let rpDelta = 0;
+    if (!bots && !treino) {
+      rpDelta = (win > 0 ? 24 : win === 0 ? -16 : 4) + Math.max(-8, Math.min(12, kills - deaths));
+      a.rp = Math.max(0, (a.rp || 0) + rpDelta);
+      if ((a.rp || 0) > (a.peakRp || 0)) a.peakRp = a.rp;
+    }
+
+    // ---- passe de missões ----
+    if (a.mpassStart) {
+      const day = Math.floor((Date.now() - a.mpassStart) / 86400000);
+      if (day < 30) a.mpassEarned = (a.mpassEarned || 0) + 100;
+    }
+
+    this.db.save();
+    this.db.recordMatch({
+      t: Date.now(), nick: a.nick, mode: String(m.mode || 'dm'),
+      win: win > 0 ? 1 : win === 0 ? 0 : -1, kills, deaths, heads, secs,
+      exp, cash, gold, rp: rpDelta,
+    });
+
+    return {
+      acct: this.acctPayload(a),
+      result: { exp, point: rpDelta, points: rpDelta, gold, cash, rank: a.rank, up, treino: treino ? 1 : 0 },
+    };
+  }
+
   onRpc(s, m) {
     const req = m.req;
     const done = (o) => this.send(s, Object.assign({ req, t: m.t }, o));
     const a = s.account;
 
     switch (m.t) {
+      case 'result': return done(this.recordResult(s, m));
       case 'acct': return done({ acct: this.acctPayload(a) });
       case 'equip': {
         const item = String(m.item || '');
@@ -562,10 +649,230 @@ class Lobby {
         const g = { id: newId('g'), name: String(m.name || 'grupo').slice(0, 24), owner: a.id, members: [a.nick] };
         this.groups.set(g.id, g); return done({ gid: g.id });
       }
-      case 'cf_top': return done({ list: [] });
-      case 'cpay': return done({ pix: null });
-      case 'pshop': return done({ bundles: [] });
-      case 'pbuy': return done({ err: 'Loja premium desativada no clone.' });
+
+      // ---------- LOJA ----------
+      // client.js shopBuy: NETC.call({t:"buy", goods:<offerId>, cash:<bool>})
+      //   cash = !a.gold  -> true kalau offer nggak punya harga gold
+      // balikin {acct} (sukses) atau {err} (gagal). Kalau nggak ada acct,
+      // client fallback call {t:"acct"} sendiri.
+      case 'buy': {
+        const useCash = !!m.cash;
+        let r = this.shop.buy(a, m.goods, useCash);
+        // kirim hadiah ke orang lain (gift) — item nggak masuk ke pengirim
+        if (r.ok && m.to) {
+          const to = String(m.to).trim().toLowerCase();
+          const tgt = this.db.resolve(to);
+          if (!tgt) return done({ err: 'Jogador não encontrado.' });
+          // balikin duit pengirim, kasih ke penerima
+          const o = this.shop.offer(m.goods);
+          if (useCash) a.cash += o.cash; else a.gold += o.gold;
+          r = this.shop.buy(tgt, m.goods, useCash);
+          if (!r.ok) return done({ err: r.err });
+          this.db.save();
+          return done({ acct: this.acctPayload(a), to: tgt.nick });
+        }
+        this.db.save();
+        if (r.err) return done({ err: r.err });
+        return done({ acct: this.acctPayload(a) });
+      }
+      // client.js: NETC.call({t:"buyset", set:<setId>, cash:<bool>})
+      case 'buyset': {
+        const r = this.shop.buySet(a, m.set, !!m.cash);
+        this.db.save();
+        if (r.err) return done({ err: r.err });
+        return done({ acct: this.acctPayload(a) });
+      }
+      // client.js premiumVitrine: butuh {bundles:[{items,was,price,tag,crate}]}
+      case 'pshop': return done({ bundles: this.shop.bundles() });
+      // beli bundle premium pake gold
+      case 'pbuy': {
+        const b = (this.shop.bundles() || [])[Number(m.b) || 0];
+        if (!b) return done({ err: 'Pacote não encontrado.' });
+        if ((a.gold || 0) < b.price) return done({ err: 'GOLD insuficiente.' });
+        a.gold -= b.price;
+        for (const it of b.items) this.shop._grant(a, it, 0);
+        this.db.save();
+        return done({ acct: this.acctPayload(a) });
+      }
+      // aktifin ulang / perpanjang sewa
+      case 'activate': {
+        const o = this.shop.offer(m.goods);
+        if (!o) return done({ err: 'Item não encontrado.' });
+        if (!this.shop.has(a, o.item)) return done({ err: 'Você não possui este item.' });
+        if (!o.days) return done({ acct: this.acctPayload(a) });
+        const useCash = !!m.cash;
+        const r = this.shop.buy(a, m.goods, useCash);
+        this.db.save();
+        if (r.err) return done({ err: r.err });
+        return done({ acct: this.acctPayload(a) });
+      }
+
+      // ---------- RANKING ----------
+      // client.js: (await NETC.call({t:"cf_top"})).list
+      //   tiap entri: {name, mark, pontos, v, d, ...}
+      case 'cf_top': {
+        const list = this.db.allAccounts()
+          .filter(x => !x.banned)
+          .sort((x, y) => (y.rp || 0) - (x.rp || 0))
+          .slice(0, 50)
+          .map(x => ({
+            name: x.nick, mark: (x.id || '').length || 1,
+            pontos: x.rp || 0, v: x.wins || 0, d: x.losses || 0, a: x.kills || 0,
+          }));
+        return done({ list });
+      }
+      // client.js showRanked: {me:{info,peakInfo,tiers,rewards,got,rp,matches,wins,losses,peak,season}, top:[], inq, count, pt, myId, plat}
+      case 'rk_me': {
+        const rp = a.rp || 0;
+        const info = cfg.rankFromRp(rp);
+        const peak = Math.max(rp, a.peakRp || 0);
+        if (peak > (a.peakRp || 0)) { a.peakRp = peak; this.db.save(); }
+        const tiers = cfg.RANK_TIERS.map(t => [t.name, t.pts]);
+        const top = this.db.allAccounts()
+          .filter(x => !x.banned && (x.rp || 0) > 0)
+          .sort((x, y) => (y.rp || 0) - (x.rp || 0))
+          .slice(0, 50)
+          .map(x => {
+            const i = cfg.rankFromRp(x.rp || 0);
+            return {
+              nick: x.nick, rp: x.rp || 0, exp: x.xp || 0,
+              kills: x.kills || 0, deaths: x.deaths || 0,
+              wins: x.wins || 0, losses: x.losses || 0,
+              info: { tier: i.tier, div: i.div, name: i.name },
+            };
+          });
+        return done({
+          me: {
+            info, peakInfo: cfg.rankFromRp(peak), tiers,
+            rewards: cfg.rankRewards(), got: a.rkGot || [],
+            rp, matches: a.matches || 0, wins: a.wins || 0, losses: a.losses || 0,
+            peak, season: 1,
+          },
+          top, inq: false, count: top.length, pt: null, myId: a.id, plat: s.plat,
+        });
+      }
+      // klaim hadiah tier
+      case 'rk_claim': {
+        const tier = String(m.tier || '');
+        const rw = cfg.rankRewards().find(r => r[0] === tier);
+        if (!rw) return done({ err: 'Recompensa não encontrada.' });
+        if ((a.rkGot || []).includes(tier)) return done({ err: 'Já recebido.' });
+        if (cfg.rankFromRp(a.rp || 0).tier < cfg.RANK_TIERS.findIndex(t => t.name === tier)) {
+          return done({ err: 'Ainda não atingiu esta patente.' });
+        }
+        a.rkGot = a.rkGot || [];
+        a.rkGot.push(tier);
+        this.shop._grant(a, rw[2], rw[3] | 0);
+        this.db.save();
+        return done({ acct: this.acctPayload(a), got: a.rkGot });
+      }
+
+      // ---------- NICK ----------
+      // client.js: NETC.call({t:"nickcheck", nick}) -> {nick} | {err}
+      case 'nickcheck': {
+        const nick = String(m.nick || '').trim().replace(/\s+/g, ' ').slice(0, 16);
+        if (nick.length < 2) return done({ err: 'Nick curto demais (mínimo 2).' });
+        if (!/^[\w .\-À-ÿ]+$/.test(nick)) return done({ err: 'Use apenas letras, números, espaço, "." e "-".' });
+        return done({ nick });
+      }
+      // client.js: ganti nick in-game
+      case 'setnick': {
+        const nick = String(m.nick || '').trim().replace(/\s+/g, ' ').slice(0, 16);
+        if (nick.length < 2) return done({ err: 'Nick curto demais (mínimo 2).' });
+        if (!/^[\w .\-À-ÿ]+$/.test(nick)) return done({ err: 'Use apenas letras, números, espaço, "." e "-".' });
+        const old = a.nick;
+        a.nick = nick;
+        this.db.save();
+        if (s.room) this.broadcastRoom(s.room);
+        return done({ acct: this.acctPayload(a), old });
+      }
+      // client.js: estilo do nick (cor/efeito) — cosmetic do clone
+      case 'nickstyle': {
+        a.nickStyle = { c: String(m.c || '').slice(0, 24), f: String(m.f || '').slice(0, 24) };
+        this.db.save();
+        return done({ acct: this.acctPayload(a) });
+      }
+
+      // ---------- NOTAS (inbox) ----------
+      case 'notes': return done({ list: (a.notes || []).slice(-50) });
+      case 'note_send': {
+        const to = this.db.resolve(String(m.to || ''));
+        if (!to) return done({ err: 'Jogador não encontrado.' });
+        const n = { from: a.nick, text: String(m.text || '').slice(0, 500), t: Date.now() };
+        to.notes = (to.notes || []).concat(n).slice(-100);
+        this.db.save();
+        const oc = [...this.conns.values()].find(c => c.account && c.account.id === to.id);
+        if (oc) this.send(oc, { t: 'note', note: n });
+        return done({});
+      }
+      case 'note_read': { a.notes = (a.notes || []).map(n => (n.t === m.t ? Object.assign({}, n, { r: 1 }) : n)); this.db.save(); return done({}); }
+      case 'note_del': { a.notes = (a.notes || []).filter(n => n.t !== m.t); this.db.save(); return done({}); }
+
+      // ---------- BLOQUEIO ----------
+      case 'blocks': return done({ list: a.blocks || [] });
+      case 'block': {
+        const n = String(m.nick || '').trim().slice(0, 16);
+        if (n && !(a.blocks || []).includes(n)) { a.blocks = (a.blocks || []).concat(n); this.db.save(); }
+        return done({ list: a.blocks });
+      }
+      case 'unblock': { a.blocks = (a.blocks || []).filter(x => x !== m.nick); this.db.save(); return done({ list: a.blocks }); }
+
+      // ---------- WHOIS ----------
+      case 'who': {
+        const t = this.db.resolve(String(m.nick || ''));
+        if (!t) return done({ err: 'Jogador não encontrado.' });
+        return done({
+          profile: {
+            nick: t.nick, level: t.level, xp: t.xp, rank: t.rank,
+            kills: t.kills, deaths: t.deaths, wins: t.wins, matches: t.matches,
+            headshots: t.headshots, clan: t.clan || null, rp: t.rp || 0,
+            online: [...this.conns.values()].some(c => c.account && c.account.id === t.id),
+          },
+        });
+      }
+
+      // ---------- TÍTULOS ----------
+      case 'title_get': return done({ list: a.titles || [], eq: a.titleEq || null });
+      case 'title_eq': {
+        const t = String(m.title || '');
+        if (t && !(a.titles || []).includes(t)) return done({ err: 'Você não tem este título.' });
+        a.titleEq = t || null; this.db.save();
+        return done({ acct: this.acctPayload(a) });
+      }
+
+      // ---------- PASSE DE MISSÕES ----------
+      case 'mpass': {
+        const day = Math.floor((Date.now() - (a.mpassStart || Date.now())) / 86400000) + 1;
+        return done({
+          day: Math.max(1, Math.min(30, day)), days: 30, end: (a.mpassStart || Date.now()) + 30 * 86400000,
+          coin: 100, coinName: 'CASH', earned: a.mpassEarned || 0,
+          reset: Date.now() + 86400000, active: !!a.mpassStart,
+        });
+      }
+      case 'mpass_buy': {
+        if (a.mpassStart) return done({ err: 'Você já tem o passe ativo.' });
+        if ((a.cash || 0) < 2500) return done({ err: 'CASH insuficiente.' });
+        a.cash -= 2500; a.mpassStart = Date.now(); a.mpassEarned = 0;
+        this.db.save();
+        return done({ acct: this.acctPayload(a) });
+      }
+
+      // ---------- CLAN ----------
+      case 'clan_buy': {
+        const o = this.shop.offer(m.item);
+        if (!o) return done({ err: 'Item não encontrado.' });
+        if ((a.cash || 0) < o.cash) return done({ err: 'CASH insuficiente.' });
+        a.cash -= o.cash;
+        a.units = a.units || {};
+        a.units[o.item] = (a.units[o.item] || 0) + 1;
+        this.db.save();
+        return done({ acct: this.acctPayload(a) });
+      }
+
+      // ---------- YANG BUTUH BACKEND / UANG ASLI ----------
+      // Pembayaran PIX asli butuh processor + uang beneran -> nggak bisa offline.
+      case 'cpay': return done({ pix: null, err: 'Pagamento indisponível no clone.' });
+      // Denúncia & julgamento de perfil butuh DB moderasi + manusia -> stub jujur.
       case 'den': return done({});
       case 'denlist': return done({ list: [], can: null });
       case 'denvote': return done({ res: 'ok' });
@@ -578,6 +885,7 @@ class Lobby {
       case 'vip_get': return done({ names: [], charas: [] });
       case 'vip_adm': return done({ err: 'Sem permissão.' });
       case 'vip_off': return done({ err: 'Sem permissão.' });
+
       case 'clan_accept': return done({ acct: this.acctPayload(a) });
       case 'rinv': return done({});
       default: return done({});
