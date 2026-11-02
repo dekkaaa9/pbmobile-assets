@@ -1,0 +1,55 @@
+# ============================================================
+#  PBMobile clone — .gitignore
+#  Repo ini KODE + DOKUMEN. Aset besar lewat GitHub Release.
+# ============================================================
+
+# ---- dependensi ----
+node_modules/
+package-lock.json
+
+# ---- file sementara / output ----
+*.log
+*.txt
+*.tmp
+*.orig
+*.rej
+
+# ---- file sistem & editor ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# ---- KREDENSIAL (jangan pernah ke-commit) ----
+.env
+.env.*
+*.pem
+*.key
+vps.js
+deploy/credentials*
+*.ppk
+
+# ---- ASET BESAR -> pakai GitHub Release, BUKAN git ----
+# Release "v1.0-assets": site_runtime.tar.gz (723 MB)
+#   isinya: index.html cc.js *.json static/ assets/ rml/
+site/assets/
+site/rml/
+
+# ---- OLAHAN ANALISIS (846 MB glb/webp/maps) -> nggak di git ----
+# Kalau mau dibagi, bikin release terpisah: export_pb.tar.gz
+site/export/
+
+# ---- TARBALL (723 MB, duplikat isi site/) ----
+dist/
+
+# ============================================================
+#  SISANYA SEMUA MASUK REPO:
+#    *.md                     dokumentasi
+#    site/index.html, cc.js, *.html, *.json
+#    site/static/**           kode client (27 MB)
+#    site/debug.html
+#    tools/**                 script (exclude node_modules)
+#    cheat/**                 userscript + panduan
+#    deploy/**                script deploy VPS
+# ============================================================

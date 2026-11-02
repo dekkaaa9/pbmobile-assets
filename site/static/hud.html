@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Editar HUD</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d1015; color: #cfd6e0; font: 13px Tahoma, sans-serif; overflow: hidden; }
+  #bg { position: fixed; inset: 0; background: radial-gradient(ellipse at 50% 60%, #2a3240, #0d1015 70%); }
+  #cross { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); opacity: .6; }
+  #cross:before, #cross:after { content: ''; position: absolute; background: #fff; } #cross:before { left: 10px; top: 0; width: 2px; height: 22px; } #cross:after { top: 10px; left: 0; width: 22px; height: 2px; }
+  #start { display: none; }
+</style>
+</head><body>
+<!-- editor do HUD de toque fora da partida (lobby -> Opcoes -> Controle): o touch.js do jogo com o estado da partida
+     simulado; Salvar grava o mesmo localStorage (pbweb_touch_v1) e volta para o lobby -->
+<div id="bg"></div><div id="cross"></div>
+<div id="start"><p id="startMsg"></p><div class="keys"></div></div>
+<script src="/static/vendor/three.min.js"></script>
+<script>
+  'use strict';
+  // o que o touch.js le do game.js (escopo global dos scripts classicos)
+  const TOUCH = true, NETMODE = true, BOMB = false, ESC_H = 0, OPT = { sens: 1, fov: 70, invert: false, voiceOn: true };
+  const $ = id => document.getElementById(id), keys = {}, RND = {}, clock = { elapsedTime: 0 }, camera = { fov: 70 };
+  let mouseDown = false, locked = false, matchOver = false;
+  const P = { s: null, W: { zoomFov: 40, name: 'K-2', item: '103004' }, slot: 1, zoom: false, inv: { 1: { w: { name: 'K-2' } }, 2: { w: { name: 'K-5' } }, 3: { w: {} }, 4: { w: { grenade: 1 }, ammo: 1 }, 6: { w: {} } } };
+  const releaseFire = () => { mouseDown = false; }, altFire = () => { }, selectSlot = () => { }, reload = () => { }, toggleExt = () => { }, setLocked = () => { }, isLaser = () => false;
+  const GCHAT = { openBox() { } };
+</script>
+<script src="/static/game/touch.js?v=202610121219"></script>
+<script>
+  // abre o editor e, ao Salvar/Padrao fechar, volta para o lobby
+  const ed = $('tcEd'), back = () => { if (history.length > 1) history.back(); else location.href = '/static/client.html'; };
+  TOUCHC.edOpen();
+  new MutationObserver(() => { if (ed.style.display === 'none') back(); }).observe(ed, { attributes: true, attributeFilter: ['style'] });
+  try { screen.orientation.lock('landscape').catch(() => { }); } catch (e) { }
+</script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a53fa38efde6fe8f',t:'MTc5MzU4NTgwNA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a53fa38efde6fe8f',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"757b3a792daa4420aa7e685273847d2b","r":1,"spa":2}' crossorigin="anonymous"></script>
+</body></html>
