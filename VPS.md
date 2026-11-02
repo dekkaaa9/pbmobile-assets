@@ -29,6 +29,11 @@ echo '/swapfile none swap sw 0 0' >> /etc/fstab
 free -h    # pastikan Swap kebaca
 ```
 
+> **Catatan buat container (Railway/docker):** swap sering **mustahil** —
+> `swapon` gagal karena `memory.swap.max = 0` di cgroup. Server ini udah ukur
+> **84,7 MB RSS**, jadi nggak butuh swap. Yang perlu dijaga cuma jangan
+> naruh `bots` kebanyakan per room. Cek: `cat /sys/fs/cgroup/memory.current`.
+
 ---
 
 ## 2. Taruh aset + kode

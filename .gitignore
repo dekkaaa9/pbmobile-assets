@@ -45,37 +45,15 @@ ws_*.js
 js/
 mirror_state.json
 site_index.html
-# ---- TOOLS SEKALI-PAKAI (mirror/probe/fetch/verify) ----
-# Repo cuma nyimpen 3 tool yang dibutuhin build/run:
+# ---- TOOLS: repo cuma nyimpen 3 tool build/run ----
 #   tools/local_server.js   jalanin clone offline (port 8787)
-#   tools/build_release.js bikin 2 tarball buat GitHub Release
-#   tools/repo_audit.js    audit isi repo
-tools/probe_*.js
-tools/fetch_*.js
-tools/check_*.js
-tools/verify_*.js
-tools/export_*.js
-tools/extract_*.js
-tools/mirror*.js
-tools/mirror.log
-tools/measure_git.js
-tools/speedtest_upload.js
-tools/beautify_bundle.js
-tools/make_debug.js
-tools/stats.js
-tools/inventory.js
-tools/tail_log.js
-tools/gh_size_check.js
-tools/runtime_size.js
-tools/final_check.js
-tools/bundle_audit.js
-tools/asset_url.js
-tools/assets_breakdown.js
-tools/clone_readiness.js
-tools/logic_probe.js
-tools/local_state.js
-tools/pbm.js
-tools/upload_site.js
+#   tools/build_release.js  bikin 2 tarball buat GitHub Release
+#   tools/repo_audit.js     audit isi repo
+# Sisanya (rekon sekali-pakai, deploy VPS, tes remote) -> JANGAN ke git.
+tools/*
+!tools/local_server.js
+!tools/build_release.js
+!tools/repo_audit.js
 # ---- HASIL REKON / LAPORAN PENTEST: bukan kebutuhan build/run ----
 LAPORAN.md
 deploy/
