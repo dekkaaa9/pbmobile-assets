@@ -63,9 +63,118 @@ node tools/local_server.js
 Server-nya **pure static** — nol request keluar. Showroom 3D langsung render
 dengan tekstur penuh, sama persis kayak di pbmobile.app.
 
-### 3. (Opsional) Deploy ke VPS
+---
 
-Lihat `GITHUB.md` dan `deploy/`.
+## Deploy ke VPS (biar bisa dibuka orang)
+
+Client ini butuh **dua** hal: (a) file statis dilayani via HTTP, dan (b) WebSocket
+ke server lobby + battle. Bagian (a) udah beres. Bagian (b) lihat
+[Multiplayer](#multiplayer-mabar) di bawah.
+
+### 1. Siapkan VPS
+
+Ubuntu 22.04, minimal **1 vCPU / 1 GB RAM / 10 GB disk**. Nggak perlu GPU — semua
+rendering di browser.
+
+```bash
+apt update && apt install -y nodejs npm
+node -v    # minimal 18
+```
+
+### 2. Taruh aset + kode
+
+```bash
+mkdir -p /opt/pbmobile && cd /opt/pbmobile
+
+# dari lokal:
+scp site-runtime.tar.gz root@IP_VPS:/opt/pbmobile/
+scp site-export.tar.gz  root@IP_VPS:/opt/pbmobile/     # opsional
+
+# di VPS:
+tar -xzf site-runtime.tar.gz          # -> site/
+tar -xzf site-export.tar.gz -C site   # -> site/export/  (opsional)
+
+git clone https://github.com/dekkaaa9/pbmobile-assets.git /opt/pbmobile/repo
+cp -r /opt/pbmobile/repo/tools /opt/pbmobile/
+cp -r /opt/pbmobile/repo/deploy /opt/pbmobile/
+```
+
+### 3. Jalanin server statis
+
+```bash
+cd /opt/pbmobile
+setsid nohup node tools/local_server.js > server.log 2>&1 &
+curl -sI http://localhost:8787/index.html | head -1     # harus 200
+```
+
+`setsid nohup` dipakai karena container/VPS kecil sering nggak ada systemd.
+Alternatif: `pm2 start tools/local_server.js` kalau mau auto-restart.
+
+### 4. Buka ke publik
+
+VPS biasanya nggak bisa bind port 80/443 langsung (di belakang NAT / Railway edge).
+Solusi paling gampang: **Cloudflare Tunnel** — gratis, HTTPS otomatis, nggak perlu
+buka port.
+
+```bash
+# install
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+  -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared
+
+# quick tunnel (dapat URL *.trycloudflare.com, ganti tiap restart)
+setsid nohup cloudflared tunnel --url http://localhost:8787 > tunnel.log 2>&1 &
+sleep 5 && grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' tunnel.log | head -1
+```
+
+URL hasil grep itu yang dibagi ke orang. WebSocket lolos otomatis karena
+cloudflared proxy `Upgrade: websocket`.
+
+> Buat domain tetap (nggak ganti tiap restart), bikin named tunnel +
+> `cloudflared tunnel route dns`. Butuh akun Cloudflare + domain sendiri.
+
+### 5. Titip client ke hostname tunnel
+
+Client bangun URL WebSocket dari `location` sendiri, jadi kalau lu buka lewat
+`https://xxx.trycloudflare.com`, dia otomatis nyambung ke host itu — **nggak perlu
+patch kode**. Yang perlu dipastiin cuma server lobby+battle dengerin di path yang
+sama (`/b2` buat battle WS, lihat `PROTOKOL.md`).
+
+---
+
+## Multiplayer (mabar)
+
+**Belum ada.** Server lobby + battle belum ditulis. Yang udah beres:
+
+- Protokol lobby lengkap — handshake `hello`/`resume`, `welcome`/`srly`/`start`,
+  ~50 tipe pesan, heartbeat `pg`/`po`
+- Protokol battle lengkap — codec binary `st` 20 Hz, roster `game`, pesan `hit`
+  (`{t:"hit",target,from,dmg,head,helm,w}`)
+- Rumus damage, rumus recoil, konstelasi 6.109 senjata
+- Token flow `{u,k}` buat WS battle
+
+Semua kesimpen di **`PROTOKOL.md`** — itu kontrak lengkap buat nulis server-nya.
+
+**Yang perlu dibikin:**
+
+```
+server/
+├── lobby.js       WebSocket /b1 — hello, room list, matchmaking, inventory
+├── battle.js      WebSocket /b2?k=... — codec st, roster, hit, skor, respawn
+├── db.js          SQLite — akun, inventory, rank, history
+└── bot.js         AI musuh buat tes solo sebelum ada pemain asli
+```
+
+Catatan penting buat yang mau lanjutin:
+
+- **Hit registration client-authoritative** — server clone nggak wajib validasi
+  peluru, jadi `battle.js` bisa simpel: terima `st`, broadcast ke room, terima `hit`.
+- **Box kecil (953 MB RAM)** → SQLite bukan PostgreSQL, state in-memory bukan Redis,
+  satu proses Node buat lobby + battle.
+- **Anti-cheat client** (`Rc`/`Lc`/`Cc`/`Ic` di `bundle.js`) cek regex teks,
+  canvas layer, dan global — jangan patch prototype WebSocket/Canvas2D/rAF.
+
+Sampai server-nya ada, yang bisa dilakuin sekarang: **showroom, inventory, shop,
+kustomisasi karakter, dan tes mode 3D** — semuanya udah jalan offline.
 
 ---
 
@@ -85,7 +194,8 @@ Lihat `GITHUB.md` dan `deploy/`.
 
 Server multiplayer belum ditulis. Semua yang dibutuhin udah kesimpen di
 `PROTOKOL.md`: handshake, token `{u,k}` buat WS battle, format pesan, rumus
-damage, rumus recoil, dan konstelasi senjata.
+damage, rumus recoil, dan konstelasi senjata. Lihat
+[Multiplayer (mabar)](#multiplayer-mabar) buat rencana server-nya.
 
 ---
 
