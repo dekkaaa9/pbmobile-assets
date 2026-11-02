@@ -24,6 +24,13 @@ const SNAP_MS = 66;          // ~15 Hz broadcast snapshot
 function newId(p) { return p + crypto.randomBytes(8).toString('hex'); }
 function now() { return Date.now(); }
 
+// ---- validasi kredensial (batasan dari modal login di client.js) ----
+//   lgId maxlength=16 | lgPw maxlength=16 | lgEm maxlength=80
+// Client sudah validasi email + pw===pw2; server validasi ulang karena
+// client bisa dipalsukan.
+const ID_RE = /^[A-Za-z0-9_.-]{3,16}$/;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i;
+
 class Lobby {
   constructor(opts) {
     this.db = new DB(opts.dbFile || require('path').join(__dirname, '..', 'data', 'pb.json'));
@@ -85,6 +92,13 @@ class Lobby {
 
   send(s, obj) { if (s.conn.open) s.conn.sendJson(obj); }
   sendBin(s, buf) { if (s.conn.open) s.conn.sendBin(buf); }
+
+  // Gagal auth. Client (net.js): "authfail" -> buang WS + throw
+  // Error(text) dengan .auth=true -> connect() catch -> tampil di lgErr.
+  authfail(s, text) {
+    this.send(s, { t: 'authfail', text: String(text) });
+    try { s.conn.close(4001, 'auth'); } catch (_) {}
+  }
 
   broadcast(objs, filter) {
     for (const s of this.conns.values()) {
@@ -153,23 +167,54 @@ class Lobby {
 
   // ---------- hello / welcome ----------
   doHello(s, m) {
-    let nick = String(m.nick || m.login || '').trim().slice(0, 16);
-    if (!nick) nick = 'Player' + Math.floor(1000 + Math.random() * 9000);
-    s.nick = nick;
     s.plat = m.plat || 'pc';
 
-    // resume: kalau sid/tok cocok, pakai akun yang sama
+    // --- resume: sid+tok, nggak perlu kredensial (reconnect & reload) ---
     let acct = null;
-    if (m.t === 'resume' && m.sid) {
+    if (m.t === 'resume' && m.sid && m.tok) {
       const old = this.conns.get(m.sid);
-      if (old && old.account) { acct = old.account; }
+      if (old && old.account) acct = old.account;
+      if (!acct) acct = this.db.getSession(m.tok);
     }
-    if (!acct) acct = this.db.createAccount(nick);
+
+    if (!acct) {
+      const login = String(m.login || m.nick || '').trim().slice(0, 16);
+
+      if (m.register) {
+        // ---------- DAFTAR (bikin akun baru) ----------
+        if (!ID_RE.test(login)) return this.authfail(s, 'ID deve ter de 3 a 16 letras, números, "." "_" ou "-".');
+        const pw = String(m.pw || '');
+        if (pw.length < 4) return this.authfail(s, 'A senha precisa de pelo menos 4 caracteres.');
+        if (pw.length > 16) return this.authfail(s, 'A senha pode ter no máximo 16 caracteres.');
+        const email = String(m.email || '').trim();
+        if (!EMAIL_RE.test(email)) return this.authfail(s, 'Digite um e-mail válido.');
+        if (this.db.getAccount(login)) return this.authfail(s, 'Este ID já está em uso. Escolha outro.');
+        acct = this.db.createAccount(login, { login, pw, email });
+        this.log('daftar ' + login + ' -> ' + acct.id);
+      } else {
+        // ---------- MASUK (login akun yang udah ada) ----------
+        if (!login) return this.authfail(s, 'Digite seu ID.');
+        const a = this.db.getAccount(login);
+        if (!a) return this.authfail(s, 'ID não encontrado. Clique em "Cadastre-se grátis".');
+        if (a.banned) return this.authfail(s, 'Esta conta está banida.');
+        if (a.pw) {
+          if (!this.db.checkPw(String(m.pw || ''), a.pw)) return this.authfail(s, 'Senha incorreta.');
+        } else {
+          // akun warisan tanpa senha -> adopsi: yang pertama login pakai
+          // nick ini jadi pemiliknya. Migrasi sekali pakai buat clone.
+          this.db.setPassword(a, String(m.pw || ''));
+          this.log('adopsi akun lama ' + login);
+        }
+        acct = a;
+      }
+    }
+
+    s.nick = acct.nick || acct.login || 'Player';
     s.account = acct;
     this.db.touch(acct);
     s.ready = true;
 
-    // kick sesi lama dengan nick sama (dup)
+    // kick sesi lama dengan akun sama (dup)
     for (const o of this.conns.values()) {
       if (o !== s && o.account && o.account.id === acct.id && o.conn.open) {
         this.send(o, { t: 'dup', text: 'Sua conta entrou em outro lugar. Esta sessão foi encerrada.' });
@@ -177,10 +222,13 @@ class Lobby {
       }
     }
 
+    const tok = crypto.randomBytes(12).toString('hex');
+    this.db.setSession(tok, acct);
+
     this.send(s, {
       t: 'welcome',
       sid: s.sid,
-      tok: crypto.randomBytes(12).toString('hex'),
+      tok,
       bin: true,                 // WAJIB true — gate battle WS
       edge: '',
       acct: this.acctPayload(acct),
@@ -191,13 +239,14 @@ class Lobby {
       build: '202611010500',
     });
 
-    this.log('hello ' + nick + ' (' + s.sid.slice(0, 6) + ')');
+    this.log('hello ' + s.nick + ' (' + s.sid.slice(0, 6) + ')');
     this.broadcast({ t: 'news', news: { s: now(), t: 'Bem-vindo ao clone!' } }, o => o !== s);
   }
 
   acctPayload(a) {
     return {
-      id: a.id, nick: a.nick, cash: a.cash, gold: a.gold, coin: a.gold,
+      id: a.id, login: a.login || '', name: a.nick || a.login || '',
+      nick: a.nick, cash: a.cash, gold: a.gold, coin: a.gold,
       level: a.level, xp: a.xp, rank: a.rank,
       kills: a.kills, deaths: a.deaths, wins: a.wins, matches: a.matches,
       headshots: a.headshots, playtime: a.playtime,

@@ -189,13 +189,61 @@ function get(p) {
     await a.connect();
     ok(true, 'upgrade /ws berhasil');
 
-    a.sendJson({ t: 'hello', nick: 'TestPemain', plat: 'pc', sts: 1, bin: 1 });
+    a.sendJson({ t: 'hello', login: 'TestPemain', pw: 'rahasia123', register: true, email: 'test@pemain.co', plat: 'pc', sts: 1, bin: 1 });
     const w = await a.waitFor(m => m.t === 'welcome', 5000);
     ok(!!w, 'dapat welcome');
     ok(w.bin === true, 'welcome.bin === true (gate battle WS)');
     ok(typeof w.sid === 'string' && w.sid.length > 4, 'welcome.sid ada');
     ok(!!w.acct, 'welcome.acct ada');
-    ok(w.acct.nick === 'TestPemain', 'acct.nick benar');
+    ok(w.acct.login === 'TestPemain', 'acct.login benar');
+    ok(w.acct.name === 'TestPemain', 'acct.name = ID (client: S.nick = ACCT.name)');
+    ok(!!w.tok, 'welcome.tok ada (buat resume)');
+    ok(w.acct.equip && w.acct.equip[1] === 'k2', 'starter kit: equip slot 1 = k2');
+    ok(w.acct.equip && w.acct.equip.red === 'redbulls' && w.acct.equip.blue === 'acidpol', 'starter kit: chara red/blue valid');
+    ok(Object.keys(w.acct.owned || {}).length === 7, 'starter kit: 7 item dimiliki');
+
+    // ---- 2b. akun: daftar duplikat & password salah harus ditolak ----
+    log('=== 2b. auth: daftar duplikat / password salah ===');
+    const cDup = new WsClient(PORT, '/ws');
+    await cDup.connect();
+    cDup.sendJson({ t: 'hello', login: 'TestPemain', pw: 'lain2345', register: true, email: 'x@y.co', plat: 'pc', sts: 1, bin: 1 });
+    const dw = await cDup.waitFor(m => m.t === 'authfail' || m.t === 'welcome', 5000);
+    ok(dw && dw.t === 'authfail', 'daftar ID yang udah ada -> authfail');
+    ok(/já está em uso/i.test(dw && dw.text || ''), 'pesan dup: ' + (dw && dw.text));
+    cDup.close();
+
+    const cPw = new WsClient(PORT, '/ws');
+    await cPw.connect();
+    cPw.sendJson({ t: 'hello', login: 'TestPemain', pw: 'salahbanget', plat: 'pc', sts: 1, bin: 1 });
+    const bw = await cPw.waitFor(m => m.t === 'authfail' || m.t === 'welcome', 5000);
+    ok(bw && bw.t === 'authfail', 'password salah -> authfail');
+    ok(/Senha incorreta/i.test(bw && bw.text || ''), 'pesan pw salah: ' + (bw && bw.text));
+    cPw.close();
+
+    const cNf = new WsClient(PORT, '/ws');
+    await cNf.connect();
+    cNf.sendJson({ t: 'hello', login: 'NgawurNggakAda', pw: 'rahasia1', plat: 'pc', sts: 1, bin: 1 });
+    const nw = await cNf.waitFor(m => m.t === 'authfail' || m.t === 'welcome', 5000);
+    ok(nw && nw.t === 'authfail', 'ID nggak ada -> authfail');
+    ok(/não encontrado/i.test(nw && nw.text || ''), 'pesan ID ngawur: ' + (nw && nw.text));
+    cNf.close();
+
+    // resume pakai tok -> nggak logout.
+    // PAKAI AKUN TERPISAH: kalau resume akun yg sama, doHello nendang
+    // sesi lama lewat dup-kick dan socket `a` (dipakai section 3+) mati.
+    const cReg = new WsClient(PORT, '/ws');
+    await cReg.connect();
+    cReg.sendJson({ t: 'hello', login: 'TestResume', pw: 'rahasia123', register: true, email: 'r@m.co', plat: 'pc', sts: 1, bin: 1 });
+    const rgw = await cReg.waitFor(m => m.t === 'welcome', 5000);
+    ok(!!rgw && !!rgw.acct && rgw.acct.login === 'TestResume', 'akun kedua didaftar (buat tes resume)');
+    cReg.close();
+
+    const cRs = new WsClient(PORT, '/ws');
+    await cRs.connect();
+    cRs.sendJson({ t: 'resume', sid: rgw.sid, tok: rgw.tok, nick: 'TestResume', plat: 'pc', sts: 1, bin: 1 });
+    const rw = await cRs.waitFor(m => m.t === 'welcome', 5000);
+    ok(!!rw && rw.acct && rw.acct.login === 'TestResume', 'resume dgn tok -> akun yang sama');
+    cRs.close();
 
     // ---- 3. rooms ----
     log('=== 3. rooms ===');

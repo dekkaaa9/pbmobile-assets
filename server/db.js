@@ -8,11 +8,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+
+// Starter kit — mirror dari client.js: START_KIT=["k2","k5","m7","k400",
+// "508001","redbulls","acidpol"]. Item ini gratis punya tiap akun baru.
+const START_KIT = ['k2', 'k5', 'm7', 'k400', '508001', 'redbulls', 'acidpol'];
 
 class DB {
   constructor(file) {
     this.file = file;
-    this.data = { accounts: {}, nextId: 1, matches: [] };
+    this.data = { accounts: {}, nextId: 1, matches: [], sessions: {} };
     this._t = null;
     this._load();
   }
@@ -26,6 +31,7 @@ class DB {
           this.data.accounts = j.accounts || {};
           this.data.nextId = j.nextId || 1;
           this.data.matches = j.matches || [];
+          this.data.sessions = j.sessions || {};
         }
       }
     } catch (e) {
@@ -54,16 +60,63 @@ class DB {
   }
 
   // ---- akun ----
-  // key: nick lowercase
+  // key: login lowercase (ID yang diketik pemain di MASUK/DAFTAR)
   getAccount(nick) { return this.data.accounts[String(nick).toLowerCase()] || null; }
 
-  createAccount(nick) {
+  // ---- password (scrypt + salt acak, compare constant-time) ----
+  hashPw(pw) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    return 'scrypt:' + salt + ':' + crypto.scryptSync(String(pw), salt, 32).toString('hex');
+  }
+  checkPw(pw, stored) {
+    if (typeof stored !== 'string') return false;
+    const p = stored.split(':');
+    if (p.length !== 3 || p[0] !== 'scrypt') return false;
+    let h, b;
+    try {
+      h = crypto.scryptSync(String(pw), p[1], 32);
+      b = Buffer.from(p[2], 'hex');
+    } catch (_) { return false; }
+    return h.length === b.length && crypto.timingSafeEqual(h, b);
+  }
+  setPassword(a, pw) { a.pw = this.hashPw(pw); a.pwAt = Date.now(); this.save(); return a; }
+
+  // ---- sesi (tok -> account id) biar resume/reconnect nggak logout ----
+  // Sengaja TIDAK dihapus pas socket tutup: client simpan tok di
+  // sessionStorage dan kirim `resume` pas reload/reconnect.
+  // Di-cap biar nggak tumbuh terus kalau ada yang bikin banyak sesi.
+  setSession(tok, acct) {
+    this.data.sessions[tok] = acct.id;
+    const ks = Object.keys(this.data.sessions);
+    if (ks.length > 500) for (const k of ks.slice(0, ks.length - 500)) delete this.data.sessions[k];
+    this.save();
+    return tok;
+  }
+  getSession(tok) {
+    const id = this.data.sessions[tok];
+    if (!id) return null;
+    for (const a of Object.values(this.data.accounts)) if (a.id === id) return a;
+    return null;
+  }
+  delSession(tok) { delete this.data.sessions[tok]; this.save(); }
+
+  /**
+   * Bikin akun baru. `opts` = { login, pw, email } — kalau `pw` diisi,
+   * akun ini punya kredensial dan bisa dipakai login lagi (alur DAFTAR).
+   * Tanpa `pw` = akun warisan/auto (legacy), nggak bisa login sampai
+   * diadopsi lewat setPassword().
+   */
+  createAccount(nick, opts) {
     const k = String(nick).toLowerCase();
     let a = this.data.accounts[k];
     if (a) return a;
+    const o = opts || {};
     a = {
       id: 'u' + (this.data.nextId++),
+      login: String(nick),
       nick: String(nick),
+      email: String(o.email || '').slice(0, 80),
+      pw: o.pw ? this.hashPw(o.pw) : '',
       created: Date.now(),
       lastLogin: Date.now(),
       cash: 50000,        // GP
@@ -77,8 +130,8 @@ class DB {
       matches: 0,
       headshots: 0,
       playtime: 0,
-      owned: {},          // itemId -> true
-      equip: {},          // slot -> itemId
+      owned: Object.fromEntries(START_KIT.map(x => [x, true])),  // itemId -> true
+      equip: { 1: 'k2', red: 'redbulls', blue: 'acidpol' },      // slot -> itemId
       settings: null,
       missions: {},
       daily: {},

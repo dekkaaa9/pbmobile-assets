@@ -82,7 +82,7 @@ dengan tekstur penuh, sama persis kayak di pbmobile.app.
 
 ```bash
 node server/index.js --port 8787
-# buka http://localhost:8787 -> klik JOGAR -> bikin/join sala -> INICIAR
+# buka http://localhost:8787 -> DAFTAR/MASUK -> JOGAR -> bikin/join sala -> INICIAR
 ```
 
 Butuh **nol `npm install`** - WebSocket server, codec, dan DB semuanya bikin
@@ -90,6 +90,12 @@ sendiri. Butuh `site/` yang udah diekstrak (Release `site-runtime.tar.gz`).
 
 Buka di beberapa browser/tab buat tes mabar. Bot otomatis jadi lawan kalau
 sala diisi `bots: [n, n]`.
+
+**Akun:** server nggak ada guest login. Pertama kali buka, klik **DAFTAR** ->
+isi ID (3-16 char), e-mail, senha (4-16) -> **CADASTRAR**. Akun + password
+(scrypt) disimpan di `data/pb.json`, jadi bisa **MASUK** lagi kapan aja.
+Akun baru langsung dapat starter kit: `k2`, `k5`, `m7`, `k400`, chara
+`redbulls`/`acidpol`. Detail + tabel errornya: **`PROTOKOL.md` §2b**.
 
 ---
 
@@ -99,12 +105,23 @@ sala diisi `bots: [n, n]`.
 
 | Bagian | File | Isi |
 |---|---|---|
-| Lobby | `server/lobby.js` | handshake `hello`/`resume`, `welcome`(`bin:true`), room list, join/create/cfg/start, chat, matchmaking (quick play / BR / ranked), RPC, heartbeat `pg` 5 s |
+| Lobby | `server/lobby.js` | handshake `hello`/`resume`, `welcome`(`bin:true`), room list, join/create/cfg/start, chat, matchmaking (quick play / BR / ranked), RPC, heartbeat `pg` 5 s, **akun: DAFTAR/MASUK + `authfail`** |
 | Battle | `server/battle.js` | codec binary `st` 20 Hz, roster `game`, hit client-authoritative, respawn 3 s, skor, 14 mode asli, bom, BR zone, P2P relay |
 | Bot | `server/bots.js` | 6 profil senjata, aim & reaksi diskala `dif` 1-3, strafe, cari target |
 | Codec | `server/codec.js` | port persis `k()`/`E()` dari `net.js` - dua arah, clamp i8 |
 | WS | `server/wssrv.js` | RFC 6455 buatan sendiri: handshake SHA1, masking, fragmentasi, control frame |
-| DB | `server/db.js` | JSON store, atomic tmp+rename, flush debounce |
+| DB | `server/db.js` | JSON store, atomic tmp+rename, flush debounce, **password scrypt + salt, sesi `tok`** |
+
+### Tes
+
+```bash
+node server/test_codec.js        # 88 assertion - codec biner dua arah
+node server/test_integration.js  # 116 assertion - boot server, mainin flow lengkap
+node server/test_akun.js         # 42 assertion - DAFTAR/MASUK/resume ke server LIVE
+```
+
+`test_akun.js` nembak server produksi (default: tunnel trycloudflare), jadi
+nggak butuh `npm install` dan nggak nyentuh DB lokal.
 
 Detail kontraknya ada di **`PROTOKOL.md`**. Deploy ke VPS: **`VPS.md`**.
 

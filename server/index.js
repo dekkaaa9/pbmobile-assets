@@ -53,7 +53,9 @@ const server = http.createServer((req, res) => {
 
 // ---- WebSocket ----
 const wss = new WsServer();
-const lobby = new Lobby({ dbFile: path.join(DATA, 'pb.json') });
+// PB_DB bisa dipakai buat nunjuk file DB lain (tes isolasi, staging).
+const dbFile = process.env.PB_DB ? path.resolve(process.env.PB_DB) : path.join(DATA, 'pb.json');
+const lobby = new Lobby({ dbFile });
 
 wss.on('/ws', (conn, req) => {
   lobby.attach(conn, req);

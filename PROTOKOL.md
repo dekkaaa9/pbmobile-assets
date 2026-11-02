@@ -58,6 +58,62 @@ Pesan pertama, dikirim di `onopen`:
 
 `resume` dipakai kalau `pbweb_sid` sudah ada di sessionStorage (reconnect).
 
+### 2b. Akun — DAFTAR / MASUK
+
+Modal login (`client.js`, `loginModal(e)` dengan `e` = mode register) mengirim
+lewat `connect()` → `NETC.connect()` → field di-spread ke pesan `hello`:
+
+```js
+// DAFTAR (tombol CADASTRAR)
+{ t:"hello", login:"<id>", pw:"<senha>", register:true, email:"<a@b.co>",
+  ref, src, ts:"", nick:"<id>", plat, sts:1, bin:1 }
+
+// MASUK (tombol ENTRAR)
+{ t:"hello", login:"<id>", pw:"<senha>", nick:"<id>", plat, sts:1, bin:1 }
+```
+
+Batasan input (dari HTML modal): `lgId` maxlength **16**, `lgPw` maxlength **16**,
+`lgEm` maxlength **80**. Client sudah validasi email + `pw === pw2`; server
+validasi ulang karena client bisa dipalsukan.
+
+**Aturan server (`lobby.js` `doHello`):**
+
+| Jalur | Kondisi | Hasil |
+|---|---|---|
+| `resume` + `sid`/`tok` cocok | sesi masih ada, atau `tok` ada di `db.sessions` | `welcome` (nggak logout) |
+| `register:true` | ID 3–16 char `[A-Za-z0-9_.-]`, senha 4–16, email valid, ID belum dipakai | akun baru + `welcome` |
+| `register:true` | ID sudah ada | `authfail` "Este ID já está em uso. Escolha outro." |
+| login | ID ada & `pw` cocok | `welcome` |
+| login | ID ada & `pw` beda | `authfail` "Senha incorreta." |
+| login | ID nggak ada | `authfail` "ID não encontrado. Clique em \"Cadastre-se grátis\"." |
+| login | akun **warisan** (ada di DB tapi `pw` kosong) | **adopsi**: `pw` di-set, lanjut `welcome` |
+| tanpa `login` sama sekali | — | `authfail` "Digite seu ID." |
+
+**Kenapa `authfail` dan bukan error HTTP:** di `net.js`,
+
+```js
+if ("authfail" === a.t) { clearTimeout(k); t.close();
+  return u(Object.assign(new Error(a.text), { auth: !0 })) }   // tolak promise
+```
+
+`connect()` di `client.js` menangkapnya: `catch(e){ if (e.auth) return e.message }`,
+dan `h()` menaruh string itu di `o("lgErr").textContent` — jadi pesan Portugis
+langsung kelihatan di kotak login.
+
+**Akun baru dapat starter kit** (mirror `START_KIT` di `client.js`):
+`owned = {k2, k5, m7, k400, 508001, redbulls, acidpol}` dan
+`equip = {1:"k2", red:"redbulls", blue:"acidpol"}`. Tanpa ini `applyAcct()`
+bikin `S.weapon`/`S.chara` jadi `undefined` — `S.chara` khususnya hilang karena
+`S.chara = (…) ? e.equip.blue : e.equip.red`.
+
+**Password:** `scrypt` + salt acak 16 byte, format `scrypt:<salt>:<hash>`,
+dibandingin pakai `crypto.timingSafeEqual`. Disimpan di `data/pb.json`
+(bukan di memori) jadi bertahan pas server restart.
+
+**Sesi:** tiap `welcome` bikin `tok` acak 12 byte dan dipetakan ke `account.id`
+di `db.sessions` (di-cap 500 entri). Sengaja **tidak** dihapus pas socket tutup —
+client simpan `tok` di sessionStorage dan kirim `resume` waktu reload/reconnect.
+
 ---
 
 ## 3. Pesan lobby (server → client)
@@ -141,8 +197,8 @@ Ini daftar **lengkap** hal yang nggak bisa dibaca dari kode client:
 | # | Hal | Kenapa perlu akun |
 |---|---|---|
 | 1 | Isi persis `dev` dan `fp` di handshake | dihitung client, tapi bentuk pastinya cuma kelihatan di wire |
-| 2 | Isi lengkap pesan `welcome` (field selain `sid/tok/bin/edge`) | server-only |
-| 3 | Bentuk persis `{u,k}` dari `srly` | server-only |
+| 2 | ~~Isi lengkap pesan `welcome`~~ | **SUDAH ADA** — lihat §2b; server kita kirim `acct` lengkap + `tok` |
+| 3 | Bentuk persis `{u,k}` dari `srly` | **SUDAH ADA** — `srly.u` absolut (`ws://<host>/b2`), `srly.k` = key battle |
 | 4 | ±50 tipe pesan lobby lain yang beredar saat main | dispatcher-nya ada di `bundle.js`, tapi nama tipe & payload asli cuma kelihatan live |
 | 5 | Frame `st` biner asli saat match jalan | validasi codec yang sudah didekode |
 
