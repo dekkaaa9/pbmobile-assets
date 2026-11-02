@@ -1,8 +1,4 @@
-# PBMobile — clone offline
-
-Mirror statis **pbmobile.app** (Point Blank Mobile versi browser) yang bisa jalan
-sepenuhnya dari disk lokal / VPS sendiri — **nggak ada satu pun request ke
-pbmobile.app** saat runtime.
+# PBMobile — clone 
 
 Isi repo ini **cuma yang dibutuhin buat clone-nya**: kode client, script, dan
 dokumentasi. **Aset 1,26 GB ada di [Releases](releases)**, bukan di git — supaya
