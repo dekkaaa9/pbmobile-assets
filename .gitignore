@@ -31,8 +31,10 @@ deploy/credentials*
 *.ppk
 
 # ---- ASET BESAR -> pakai GitHub Release, BUKAN git ----
-# Release "v1.0-assets": site_runtime.tar.gz (723 MB)
-#   isinya: index.html cc.js *.json static/ assets/ rml/
+# Release "v1.0", 2 file (generate via tools/build_release.js):
+#   dist/site-runtime.tar.gz  723 MB  = site/ lengkap KECUALI export/ -> bisa langsung jalan
+#   dist/site-export.tar.gz   539 MB  = site/export/ (GLB/WebP/maps)
+# Dipisah 2 file karena site/ utuh 2,05 GB > limit Release 2 GB per file.
 site/assets/
 site/rml/
 
